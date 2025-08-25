@@ -1,4 +1,4 @@
-export default function WeatherIcon({ code, className = "" }: { code: number, className?: string }) {
+export default function WeatherIcons({ code, className = "" }: { code: number, className?: string }) {
   const map: Record<number, string> = {
     0: "☀️",
     1: "🌤️",
