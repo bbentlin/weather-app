@@ -67,3 +67,21 @@ html, body {
   }
 }
 
+@keyframes auroraSlow {
+  0% { transform: translate(-50%, 0) rotate(0deg) }
+  50% { transform: translate(-55%, -2%) rotate(60deg) }
+  100% { transform: translate(-50%, 0) rotate(120deg) }
+}
+@keyframes auroraFast {
+  0% { transform: translate(0,0) rotate(0deg) }
+  50% { transform: translate(2%, -3%) rotate(-80deg) }
+  100% { transform: translate(0,0) rotate(-160deg) }
+}
+
+.animate-aurora-slow { animation: auroraSlow 26s ease-in-out infinite alternate; }
+.animate-aurora-fast { animation: auroraFast 18s ease-in-out infinite alternate; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-aurora-slow, .animate-aurora-fast { animation: none !important; }
+}
+

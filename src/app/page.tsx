@@ -5,6 +5,9 @@ import WeatherIcons from "../components/WeatherIcons";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import Sparkline from "../components/Sparkline";
+import Aurora from "../components/Aurora";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type WeatherData = {
   location: { name: string; lat: number; lon: number };
@@ -175,17 +178,70 @@ async function fetchWeather(
   };
 }
 
-// Theme helper
+type AuroraTheme = {
+  colorsA: [string, string, string];
+  colorsB: [string, string, string];
+  opacityA: number;
+  opacityB: number;
+};
+
+function auroraFrom(code?: number, isDay?: boolean): AuroraTheme {
+  const day = !!isDay;
+  // Defaults
+  let A: [string, string, string] = ["#22d3ee", "#a78bfa", "#f472b6"];
+  let B: [string, string, string] = ["#60a5fa", "#34d399", "#22d3ee"];
+  let oa = day ? 0.55 : 0.40;
+  let ob = day ? 0.35 : 0.28;
+
+  if (code == null) return { colorsA: A, colorsB: B, opacityA: oa, opacityB: ob };
+
+  // Clear / few clouds
+  if ([0, 1, 2].includes(code)) {
+    A = day ? ["#22d3ee", "#a78bfa", "#f472b6"] : ["#0ea5e9", "#6366f1", "#06b6d4"];
+    B = day ? ["#60a5fa", "#34d399", "#22d3ee"] : ["#312e81", "#0ea5e9", "#7c3aed"];
+  }
+  // Overcast
+  else if (code === 3) {
+    A = day ? ["#93c5fd", "#a5b4fc", "#a7f3d0"] : ["#1d4ed8", "#3730a3", "#0f766e"];
+    B = day ? ["#7dd3fc", "#6ee7b7", "#93c5fd"] : ["#0ea5e9", "#14b8a6", "#1e3a8a"];
+  }
+  // Fog
+  else if (code === 45 || code === 48) {
+    A = day ? ["#cbd5e1", "#a3a3a3", "#93c5fd"] : ["#334155", "#475569", "#1e40af"];
+    B = day ? ["#a5b4fc", "#e2e8f0", "#94a3b8"] : ["#0ea5e9", "#64748b", "#1f2937"];
+  }
+  // Drizzle / rain
+  else if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) {
+    A = day ? ["#38bdf8", "#6366f1", "#14b8a6"] : ["#0ea5e9", "#312e81", "#06b6d4"];
+    B = day ? ["#60a5fa", "#22d3ee", "#0ea5e9"] : ["#1e3a8a", "#075985", "#3730a3"];
+  }
+  // Snow
+  else if ([71, 73, 75, 77, 85, 86].includes(code)) {
+    A = day ? ["#93c5fd", "#bfdbfe", "#e0e7ff"] : ["#1e3a8a", "#0ea5e9", "#6366f1"];
+    B = day ? ["#7dd3fc", "#a7f3d0", "#60a5fa"] : ["#0ea5e9", "#164e63", "#334155"];
+  }
+  // Thunder
+  else if ([95, 96, 99].includes(code)) {
+    A = day ? ["#f59e0b", "#22d3ee", "#6366f1"] : ["#f59e0b", "#7c3aed", "#0ea5e9"];
+    B = day ? ["#a78bfa", "#f472b6", "#f59e0b"] : ["#f472b6", "#a78bfa", "#f59e0b"];
+    oa = day ? 0.60 : 0.48;
+    ob = day ? 0.40 : 0.32;
+  }
+
+  return { colorsA: A, colorsB: B, opacityA: oa, opacityB: ob };
+}
+
 function themeFrom(code?: number, isDay?: boolean): string {
   if (code == null) {
     return "bg-gradient-to-br from-sky-50 via-white to-slate-200 dark:from-sky-700/40 dark:via-indigo-900/40 dark:to-gray-950";
   }
   const day = !!isDay;
+
   // Clear / few clouds
   if ([0, 1, 2].includes(code)) {
     return day
       ? "bg-gradient-to-br from-sky-100 via-blue-200 to-indigo-300 dark:from-slate-900 dark:via-slate-950 dark:to-sky-900"
-      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black";
+      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-slate-950 dark:to-black";
   }
   // Overcast
   if (code === 3) {
@@ -196,17 +252,24 @@ function themeFrom(code?: number, isDay?: boolean): string {
     return "bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-950 dark:to-black";
   }
   // Drizzle / rain
-  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) {
-    return "bg-gradient-to-br from-sky-200 via-sky-300 to-slate-400 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-950";
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) {
+    return day
+      ? "bg-gradient-to-br from-sky-200 via-sky-300 to-slate-400 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-950"
+      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-slate-950 dark:to-black";
   }
   // Snow
-  if ([71, 73, 75, 77, 85, 86].includes(code)) {
-    return "bg-gradient-to-br from-blue-100 via-slate-200 to-slate-300 dark:from-slate-900 dark:via-blue-950 dark:to-slate-950";
+  if ([71,73,75,77,85,86].includes(code)) {
+    return day
+      ? "bg-gradient-to-br from-blue-100 via-slate-200 to-slate-300 dark:from-slate-900 dark:via-blue-950 dark:to-slate-950"
+      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-blue-950 dark:to-slate-950";
   }
   // Thunder
-  if ([95, 96, 99].includes(code)) {
-    return "bg-gradient-to-br from-amber-100 via-sky-200 to-indigo-300 dark:from-indigo-950 dark:via-slate-950 dark:to-black";
+  if ([95,96,99].includes(code)) {
+    return day
+      ? "bg-gradient-to-br from-amber-100 via-sky-200 to-indigo-300 dark:from-indigo-950 dark:via-slate-950 dark:to-black"
+      : "bg-gradient-to-br from-amber-700/30 via-indigo-900 to-black dark:from-amber-800/30 dark:via-indigo-950 dark:to-black";
   }
+
   return "bg-gradient-to-br from-sky-50 via-white to-slate-200 dark:from-sky-700/40 dark:via-indigo-900/40 dark:to-gray-950";
 }
 
@@ -223,6 +286,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<GeoResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [focusIdx, setFocusIdx] = useState<number>(-1); 
+  const [aurora, setAurora] = useState<AuroraTheme>(() => auroraFrom());
   const labels = unitLabels(unit);
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -261,6 +325,15 @@ export default function Home() {
       setThemeClass(themeFrom(weather.current.weather_code, weather.current.is_day === 1));
     } else {
       setThemeClass(themeFrom());
+    }
+  }, [weather?.current?.weather_code, weather?.current?.is_day]);
+
+  // Update aurora effect when weather changes
+  useEffect(() => {
+    if (weather?.current) {
+      setAurora(auroraFrom(weather.current.weather_code, weather.current.is_day === 1));
+    } else {
+      setAurora(auroraFrom());
     }
   }, [weather?.current?.weather_code, weather?.current?.is_day]);
 
@@ -421,8 +494,65 @@ export default function Home() {
     return unit === "us" ? val.toFixed(val < 1 ? 2 : 2) : val.toFixed(val < 1 ? 1 : 1);
   }
 
+  // Restore last weather on first mount
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("lastWeather");
+      if (raw) {
+        const { data, unit: savedUnit } = JSON.parse(raw);
+        if (savedUnit) setUnit(savedUnit);
+        if (data) setWeather(data);
+      }
+    } catch {}
+  }, []);
+
+  // Persist whenever weather/unit change
+  useEffect(() => {
+    if (!weather) return;
+    try {
+      sessionStorage.setItem("lastWeather", JSON.stringify({ data: weather, unit }));
+    } catch {}
+  }, [weather, unit]);
+
+  // If URL has lat/lon, load that location (used when returning from Day page)
+  const sp = useSearchParams();
+  useEffect(() => {
+    const lat = Number(sp.get("lat"));
+    const lon = Number(sp.get("lon"));
+    const name = sp.get("name") || "Location";
+    const urlUnit = (sp.get("unit") as "metric" | "us") || unit;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    // Avoid refetch if already showing same place/unit
+    if (
+      weather &&
+      Math.abs(weather.location.lat - lat) < 1e-6 &&
+      Math.abs(weather.location.lon - lon) < 1e-6 &&
+      urlUnit === unit
+    ) {
+      return;
+    }
+
+    setUnit(urlUnit);
+    setLoading(true);
+    fetchWeather(lat, lon, name, urlUnit)
+      .then(setWeather)
+      .catch((e) => {
+        console.error(e);
+        setWeather(null);
+      })
+      .finally(() => setLoading(false));
+  }, [sp]);
+
   return (
     <main className={`min-h-screen flex flex-col transition-colors duration-500 ${themeClass}`}>
+      <Aurora
+        colorsA={aurora.colorsA}
+        colorsB={aurora.colorsB}
+        opacityA={aurora.opacityA}
+        opacityB={aurora.opacityB}
+      />
       <div className="max-w-4xl w-full mx-auto px-6 pt-12 pb-6">
         {/* Search form (animated in) */}
         <section className="text-center animate-fadeUp">
@@ -588,7 +718,7 @@ export default function Home() {
 
           {/* Loading skeleton cards */}
           {loading && (
-            <div className="grid gap-4 md:grid-cols-4 items-stretch">
+            <div className="grid gap-4 md:grid-cols-4 items-stretch auto-rows-fr">
               {[...Array(4)].map((_, i) => (
                 <Card key={i}>
                   <div className="h-10 w-24 bg-black/10 dark:bg-white/20 rounded animate-pulse mb-2" />
@@ -605,113 +735,112 @@ export default function Home() {
                 <h2 className="text-2xl font-bold">{weather.location.name}</h2>
               </div>
 
-              {/* Current/Feels/Wind/Precipitation cards */}
-              <div className="grid gap-4 md:grid-cols-4 items-stretch">
-                <Card>
-                  <div className="flex items-end gap-2">
-                    <div className="text-6xl font-bold">
-                      {Math.round(weather.current.temperature_2m)}
-                      <span className="text-4xl">{labels.temp}</span>
-                    </div>
-                    <div className="mb-2">
-                      <WeatherIcons code={weather.current.weather_code} className="text-4xl" />
-                    </div>
-                  </div>
-                  <div className="text-lg mt-1">{describe(weather.current.weather_code)}</div>
-
-                  {/* Next 24h sparkline */}
-                  {(() => {
-                    const startIdx = Math.max(
-                      weather.hourly.time.findIndex((t) => t >= weather.current.time),
-                      0
-                    );
-                    const temps = weather.hourly.temperature_2m.slice(startIdx, startIdx + 24);
-                    if (temps.length < 2) return null;
-                    return (
-                      <div className="mt-4">
-                        <div className="text-xs uppercase opacity-70 mb-1">Next 24h</div>
-                        <Sparkline data={temps} height={42} />
+              <div className="grid gap-4 md:grid-cols-4 items-stretch auto-rows-fr">
+                {/* Temperature */}
+                <Card accent="amber" tilt>
+                  <div className="flex h-full flex-col">
+                    <div>
+                      <div className="flex items-end gap-2">
+                        <div className="text-6xl font-bold">
+                          {Math.round(weather.current.temperature_2m)}
+                          <span className="text-4xl">{labels.temp}</span>
+                        </div>
+                        <div className="mb-2">
+                          <WeatherIcons code={weather.current.weather_code} className="text-4xl" />
+                        </div>
                       </div>
-                    );
-                  })()}
+                      <div className="text-lg mt-1">{describe(weather.current.weather_code)}</div>
+                    </div>
+                    {(() => {
+                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                      const temps = weather.hourly.temperature_2m.slice(startIdx, startIdx + 24);
+                      if (temps.length < 2) return null;
+                      return (
+                        <div className="mt-auto pt-4">
+                          <div className="text-xs uppercase opacity-70 mb-1">Next 24h</div>
+                          <Sparkline data={temps} height={42} />
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </Card>
 
-                <Card>
-                  <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Feels like</div>
-                  <div className="text-4xl font-semibold">
-                    {Math.round(weather.current.apparent_temperature)}
-                    {labels.temp}
-                  </div>
-                  <div className="mt-2 text-sm opacity-70">
-                    Humidity: {weather.current.relative_humidity_2m}%
-                  </div>
-
-                  {(() => {
-                    const startIdx = Math.max(
-                      weather.hourly.time.findIndex((t) => t >= weather.current.time),
-                      0
-                    );
-                    const feels = weather.hourly.apparent_temperature.slice(startIdx, startIdx + 24);
-                    if (feels.length < 2) return null;
-                    return (
-                      <div className="mt-4 text-rose-500 dark:text-rose-300">
-                        <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                        <Sparkline data={feels} height={42} />
+                {/* Feels like */}
+                <Card accent="rose" tilt>
+                  <div className="flex h-full flex-col">
+                    <div>
+                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Feels like</div>
+                      <div className="text-4xl font-semibold">
+                        {Math.round(weather.current.apparent_temperature)}
+                        {labels.temp}
                       </div>
-                    );
-                  })()}
+                      <div className="mt-2 text-sm opacity-70">Humidity: {weather.current.relative_humidity_2m}%</div>
+                    </div>
+                    {(() => {
+                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                      const feels = weather.hourly.apparent_temperature.slice(startIdx, startIdx + 24);
+                      if (feels.length < 2) return null;
+                      return (
+                        <div className="mt-auto pt-4 text-rose-500 dark:text-rose-300">
+                          <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
+                          <Sparkline data={feels} height={42} />
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </Card>
 
-                <Card>
-                  <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Wind</div>
-                  <div className="text-4xl font-semibold">
-                    {Math.round(weather.current.wind_speed_10m)} {labels.wind}
-                  </div>
-
-                  {(() => {
-                    const startIdx = Math.max(
-                      weather.hourly.time.findIndex((t) => t >= weather.current.time),
-                      0
-                    );
-                    const wind = weather.hourly.wind_speed_10m.slice(startIdx, startIdx + 24);
-                    if (wind.length < 2) return null;
-                    return (
-                      <div className="mt-4 text-emerald-600 dark:text-emerald-300">
-                        <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                        <Sparkline data={wind} height={42} />
+                {/* Wind */}
+                <Card accent="emerald" tilt>
+                  <div className="flex h-full flex-col">
+                    <div>
+                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Wind</div>
+                      <div className="text-4xl font-semibold">
+                        {Math.round(weather.current.wind_speed_10m)} {labels.wind}
                       </div>
-                    );
-                  })()}
+                    </div>
+                    {(() => {
+                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                      const wind = weather.hourly.wind_speed_10m.slice(startIdx, startIdx + 24);
+                      if (wind.length < 2) return null;
+                      return (
+                        <div className="mt-auto pt-4 text-emerald-600 dark:text-emerald-300">
+                          <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
+                          <Sparkline data={wind} height={42} />
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </Card>
 
                 {/* Precipitation */}
-                <Card>
-                  <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Precipitation</div>
-                  {(() => {
-                    const startIdx = Math.max(
-                      weather.hourly.time.findIndex((t) => t >= weather.current.time),
-                      0
-                    );
-                    const precipNow =
-                      weather.current.precipitation ??
-                      weather.hourly.precipitation[startIdx] ??
-                      0;
-
-                    return (
-                      <>
-                        <div className="text-4xl font-semibold">
-                          {formatPrecip(precipNow, unit)} {labels.precip}
-                        </div>
-                        <div className="mt-4 text-sky-700 dark:text-sky-300">
+                <Card accent="sky" tilt>
+                  <div className="flex h-full flex-col">
+                    <div>
+                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Precipitation</div>
+                      {(() => {
+                        const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                        const precipNow =
+                          weather.current.precipitation ?? weather.hourly.precipitation[startIdx] ?? 0;
+                        return (
+                          <div className="text-4xl font-semibold">
+                            {formatPrecip(precipNow, unit)} {labels.precip}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    {(() => {
+                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                      const precip = weather.hourly.precipitation.slice(startIdx, startIdx + 24);
+                      if (precip.length < 2) return null;
+                      return (
+                        <div className="mt-auto pt-4 text-sky-700 dark:text-sky-300">
                           <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                          <Sparkline
-                            data={weather.hourly.precipitation.slice(startIdx, startIdx + 24)}
-                            height={42}
-                          />
+                          <Sparkline data={precip} height={42} />
                         </div>
-                      </>
-                    );
-                  })()}
+                      );
+                    })()}
+                  </div>
                 </Card>
               </div>
 
@@ -730,22 +859,28 @@ export default function Home() {
                       );
                       return label === "Thu" ? "Thur" : label;
                     };
-                    return days.map(({ day, i }, idx) => (
-                      <Card key={day} padding="p-3" wrapperClassName="animate-fadeUp">
-                        <div className="font-medium">{idx === 0 ? "Today" : weekday(day)}</div>
-                        <div className="text-2xl font-semibold mt-1">
-                          {Math.round(weather.daily.temperature_2m_max[i])}{labels.temp}
-                        </div>
-                        <div className="text-sm opacity-80">
-                          Low: {Math.round(weather.daily.temperature_2m_min[i])}{labels.temp}
-                        </div>
-                        {Number.isFinite(weather.daily.precipitation_probability_max?.[i]) && (
-                          <div className="text-sm opacity-80 mt-1">
-                            Precip Chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
-                          </div>
-                        )}
-                      </Card>
-                    ));
+                    return days.map(({ day, i }, idx) => {
+                      const href = `/day/${day}?lat=${weather.location.lat}&lon=${weather.location.lon}` +
+                        `&unit=${unit}&name=${encodeURIComponent(weather.location.name)}&tz=${encodeURIComponent(weather.timezone)}`;
+                      return (
+                        <Link key={day} href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 rounded-2xl">
+                          <Card padding="p-3" wrapperClassName="animate-fadeUp">
+                            <div className="font-medium">{idx === 0 ? "Today" : weekday(day)}</div>
+                            <div className="text-2xl font-semibold mt-1">
+                              {Math.round(weather.daily.temperature_2m_max[i])}{labels.temp}
+                            </div>
+                            <div className="text-sm opacity-80">
+                              Low: {Math.round(weather.daily.temperature_2m_min[i])}{labels.temp}
+                            </div>
+                            {Number.isFinite(weather.daily.precipitation_probability_max?.[i]) && (
+                              <div className="text-sm opacity-80 mt-1">
+                                Precip Chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
+                              </div>
+                            )}
+                          </Card>
+                        </Link>
+                      );
+                    });
                   })()}
                 </div>
               </section>
