@@ -6,6 +6,7 @@ import Card from "@/components/Card";
 import Sparkline from "@/components/Sparkline";
 import Button from "@/components/Button";
 import { Fragment } from "react";
+import WeatherIcons from "@/components/WeatherIcons";
 
 type Unit = "metric" | "us";
 
@@ -116,6 +117,7 @@ export default function DayPage() {
   const [loading, setLoading] = useState(true);
   const [bundle, setBundle] = useState<DayBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hourIdx, setHourIdx] = useState(0); // ADD
 
   useEffect(() => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || !date) {
@@ -139,6 +141,43 @@ export default function DayPage() {
     };
   }, [lat, lon, unit, tz, date]);
 
+  // After data loads, default selection (now if today, else midday)
+  useEffect(() => {
+    if (!bundle) return;
+    const times = bundle.hourly.time;
+
+    // Compute start/end indices for this date
+    const s = times.findIndex((t) => t.slice(0, 10) === date);
+    if (s < 0) return;
+    let e = s;
+    while (e < times.length && times[e].slice(0, 10) === date) e++;
+    if (s === e) return;
+
+    const dayTimes = times.slice(s, e);
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const tzId = tz || bundle.timezone;
+    let idx = Math.min(12, dayTimes.length - 1);
+
+    if (date === todayISO) {
+      const now = new Date();
+      // Robust: extract just the hour number (0-23) for the given timezone
+      const parts = new Intl.DateTimeFormat(undefined, {
+        timeZone: tzId,
+        hour: "numeric",
+        hourCycle: "h23",
+      }).formatToParts(now);
+      const hourPart = parts.find((p) => p.type === "hour");
+      const nowHour = hourPart ? parseInt(hourPart.value, 10) : NaN;
+      if (Number.isFinite(nowHour)) {
+        idx = Math.max(0, Math.min(dayTimes.length - 1, nowHour));
+      }
+    }
+
+    // Final guard
+    if (!Number.isFinite(idx)) idx = 0;
+    setHourIdx(idx);
+  }, [bundle, date, tz]);
+
   const fmtDate = useMemo(() => {
     try {
       const d = new Date(date + "T12:00:00");
@@ -159,6 +198,35 @@ export default function DayPage() {
   }, [bundle, date]);
 
   const slice = <T,>(arr: T[]) => arr.slice(dayIdxRange.start, dayIdxRange.end);
+
+  const timesOfDay = useMemo(() => {
+    if (!bundle) return [];
+    const { start, end } = dayIdxRange;
+    return bundle.hourly.time.slice(start, end);
+  }, [bundle, dayIdxRange]);
+
+  const at = <T,>(arr: T[], fallback?: T) => {
+    const len = timesOfDay.length;
+    if (!len) return fallback!;
+    const safeHour = Number.isFinite(hourIdx) ? hourIdx : 0;
+    const idx = dayIdxRange.start + Math.min(Math.max(safeHour, 0), len - 1);
+    return arr[idx] ?? fallback!;
+  };
+
+  const timeLabel = useMemo(() => {
+    if (!timesOfDay.length) return "";
+    const idx = Math.min(Math.max(hourIdx, 0), timesOfDay.length - 1);
+    const t = timesOfDay[idx];
+    if (typeof t !== "string") return "";
+    // Expect "YYYY-MM-DDTHH:mm" – extract HH safely
+    const m = t.match(/T(\d{2}):/);
+    if (!m) return t.slice(11, 16) || "";
+    const h = Number(m[1]);
+    if (!Number.isFinite(h)) return "";
+    const hour12 = (h % 12) || 12;
+    const ampm = h < 12 ? "AM" : "PM";
+    return `${hour12} ${ampm}`;
+  }, [timesOfDay, hourIdx]);
 
   // Simple helpers
   const maxOf = (arr: number[]) => (arr.length ? Math.max(...arr) : NaN);
@@ -207,21 +275,53 @@ export default function DayPage() {
 
         {bundle && !loading && (
           <>
+            {/* Hour slider */}
+            {bundle && timesOfDay.length > 1 && (
+              <div className="mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm opacity-80 min-w-[60px]">Hour: {timeLabel}</div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(timesOfDay.length - 1, 0)}
+                    step={1}
+                    value={
+                      (() => {
+                        const maxIdx = Math.max(timesOfDay.length - 1, 0);
+                        const hv = Number.isFinite(hourIdx) ? hourIdx : 0;
+                        return Math.min(Math.max(hv, 0), maxIdx);
+                      })()
+                    }
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      setHourIdx(Number.isFinite(n) ? n : 0);
+                    }}
+                    className="w-full accent-sky-600"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Summary cards */}
             <div className="grid gap-4 md:grid-cols-4 items-stretch auto-rows-fr">
               {/* Temperature */}
-              <Card accent="amber" tilt>
-                <div className="flex h-full flex-col">
-                  <div>
-                    <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Temperature</div>
-                    <div className="text-4xl font-semibold">
-                      High {round(maxOf(slice(bundle.hourly.temperature_2m)))}{labels.temp}
-                    </div>
-                    <div className="opacity-80">Low {round(minOf(slice(bundle.hourly.temperature_2m)))}{labels.temp}</div>
+              <Card accent="amber" tilt wrapperClassName="animate-fade-up">
+                <div style={{ animationDelay: "60ms" }}>
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm uppercase tracking-wider opacity-80">Temperature</div>
+                    <WeatherIcons code={bundle.hourly.weather_code?.[dayIdxRange.start] ?? 1} isDay size={22} className="text-amber-500 dark:text-amber-300" />
                   </div>
-                  <div className="mt-auto pt-4">
-                    <div className="text-xs uppercase opacity-70 mb-1">Hourly</div>
-                    <Sparkline data={slice(bundle.hourly.temperature_2m)} height={42} />
+                  <div className="flex h-full flex-col">
+                    <div>
+                      <div className="text-4xl font-semibold">
+                        {Math.round(at(bundle.hourly.temperature_2m) as number)}{labels.temp}
+                      </div>
+                      <div className="opacity-80">at {timeLabel}</div>
+                    </div>
+                    <div className="mt-auto pt-4">
+                      <div className="text-xs uppercase opacity-70 mb-1">Hourly</div>
+                      <Sparkline data={slice(bundle.hourly.temperature_2m)} height={42} />
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -232,9 +332,9 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Feels like</div>
                     <div className="text-4xl font-semibold">
-                      High {round(maxOf(slice(bundle.hourly.apparent_temperature)))}{labels.temp}
+                      {Math.round(at(bundle.hourly.apparent_temperature) as number)}{labels.temp}
                     </div>
-                    <div className="opacity-80">Low {round(minOf(slice(bundle.hourly.apparent_temperature)))}{labels.temp}</div>
+                    <div className="opacity-80">at {timeLabel}</div>
                   </div>
                   <div className="mt-auto pt-4 text-rose-500 dark:text-rose-300">
                     <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Hourly</div>
@@ -249,9 +349,9 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Wind</div>
                     <div className="text-4xl font-semibold">
-                      Max {round(maxOf(slice(bundle.hourly.wind_speed_10m)))} {labels.wind}
+                      {Math.round(at(bundle.hourly.wind_speed_10m) as number)} {labels.wind}
                     </div>
-                    <div className="opacity-80">Gusts {round(maxOf(slice(bundle.hourly.wind_gusts_10m)))} {labels.wind}</div>
+                    <div className="opacity-80">gust {Math.round(at(bundle.hourly.wind_gusts_10m) as number)} {labels.wind}</div>
                   </div>
                   <div className="mt-auto pt-4 text-emerald-600 dark:text-emerald-300">
                     <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Hourly</div>
@@ -266,11 +366,9 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Precipitation</div>
                     <div className="text-4xl font-semibold">
-                      Total {round(slice(bundle.hourly.precipitation).reduce((a, b) => a + (b || 0), 0), unit === "us" ? 2 : 1)} {labels.precip}
+                      {(Number(at(bundle.hourly.precipitation) || 0)).toFixed(unit === "us" ? 2 : 1)} {labels.precip}
                     </div>
-                    <div className="opacity-80">
-                      Chance {round(maxOf(slice(bundle.hourly.precipitation_probability)))}%
-                    </div>
+                    <div className="opacity-80">chance {Math.round(Number(at(bundle.hourly.precipitation_probability) || 0))}% at {timeLabel}</div>
                   </div>
                   <div className="mt-auto pt-4 text-sky-700 dark:text-sky-300">
                     <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Hourly</div>
@@ -383,10 +481,15 @@ export default function DayPage() {
                         </thead>
                         <tbody>
                           {times.map((t, i) => {
-                            const timeLabel = new Intl.DateTimeFormat(undefined, {
-                              hour: "numeric",
-                              timeZone: tz || bundle.timezone,
-                            }).format(new Date(t));
+                            // Safe, cross-browser hour label from string
+                            const tp = (t.split("T")[1] || "");
+                            const [hStr] = tp.split(":");
+                            const hNum = Number(hStr);
+                            const label =
+                              Number.isFinite(hNum)
+                                ? `${((hNum % 12) || 12)} ${hNum < 12 ? "AM" : "PM"}`
+                                : (t.slice(11, 16) || "");
+
                             const trClass =
                               i % 2 === 0
                                 ? "bg-black/0 dark:bg-white/0"
@@ -403,7 +506,7 @@ export default function DayPage() {
                                 key={t}
                                 className={`${trClass} border-b border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10 transition-colors`}
                               >
-                                <td className="px-3 py-2 whitespace-nowrap font-medium">{timeLabel}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-medium">{label}</td>
                                 <td className="px-3 py-2 whitespace-nowrap">
                                   {Math.round(temps[i])}
                                   {labels.temp}

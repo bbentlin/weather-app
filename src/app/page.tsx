@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import WeatherIcons from "../components/WeatherIcons";
+import WeatherIcons from "@/components/WeatherIcons";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import Sparkline from "../components/Sparkline";
 import Aurora from "../components/Aurora";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import MapPicker from "@/components/MapPicker";
 
 type WeatherData = {
   location: { name: string; lat: number; lon: number };
@@ -22,10 +23,13 @@ type WeatherData = {
     precipitation?: number;
   };
   daily: {
+    time: string[];
     temperature_2m_max: number[];
     temperature_2m_min: number[];
-    time: string[];
-    precipitation_probability_max?: number[]; 
+    precipitation_probability_max?: number[];
+    weather_code?: number[];
+    sunrise?: string[];   
+    sunset?: string[];    
   };
   hourly: {
     time: string[];
@@ -45,6 +49,9 @@ type GeoResult = {
   admin1?: string;             
   population?: number | null;  
 };
+
+type Place = { name: string; lat: number; lon: number };
+
 
 // Helper to format place nicely
 function formatPlace(g: GeoResult) {
@@ -149,7 +156,7 @@ async function fetchWeather(
     let detail = raw;
     try {
       const j = JSON.parse(raw);
-      // Prefer upstream body if available; fall back to error/status
+      // Prefer upstream body
       detail = j?.body ?? j?.message ?? j?.error ?? raw;
     } catch {
       // raw not JSON
@@ -166,6 +173,9 @@ async function fetchWeather(
       temperature_2m_min: data.daily.temperature_2m_min,
       time: data.daily.time,
       precipitation_probability_max: data.daily.precipitation_probability_max,
+      weather_code: data.daily.weather_code,
+      sunrise: data.daily.sunrise,   // added
+      sunset: data.daily.sunset,     // added
     },
     hourly: {
       time: data.hourly.time,
@@ -232,65 +242,89 @@ function auroraFrom(code?: number, isDay?: boolean): AuroraTheme {
 }
 
 function themeFrom(code?: number, isDay?: boolean): string {
-  if (code == null) {
-    return "bg-gradient-to-br from-sky-50 via-white to-slate-200 dark:from-sky-700/40 dark:via-indigo-900/40 dark:to-gray-950";
-  }
-  const day = !!isDay;
+  // Dark variant only applies when OS is dark
+  const dark = "dark:from-slate-900 dark:via-indigo-950 dark:to-black";
 
-  // Clear / few clouds
-  if ([0, 1, 2].includes(code)) {
-    return day
-      ? "bg-gradient-to-br from-sky-100 via-blue-200 to-indigo-300 dark:from-slate-900 dark:via-slate-950 dark:to-sky-900"
-      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-slate-950 dark:to-black";
-  }
-  // Overcast
-  if (code === 3) {
-    return "bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 dark:from-slate-900 dark:via-slate-950 dark:to-black";
-  }
-  // Fog
-  if (code === 45 || code === 48) {
-    return "bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-950 dark:to-black";
-  }
-  // Drizzle / rain
-  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) {
-    return day
-      ? "bg-gradient-to-br from-sky-200 via-sky-300 to-slate-400 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-950"
-      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-slate-950 dark:to-black";
-  }
-  // Snow
-  if ([71,73,75,77,85,86].includes(code)) {
-    return day
-      ? "bg-gradient-to-br from-blue-100 via-slate-200 to-slate-300 dark:from-slate-900 dark:via-blue-950 dark:to-slate-950"
-      : "bg-gradient-to-br from-indigo-900 via-slate-900 to-black dark:from-indigo-950 dark:via-blue-950 dark:to-slate-950";
-  }
-  // Thunder
-  if ([95,96,99].includes(code)) {
-    return day
-      ? "bg-gradient-to-br from-amber-100 via-sky-200 to-indigo-300 dark:from-indigo-950 dark:via-slate-950 dark:to-black"
-      : "bg-gradient-to-br from-amber-700/30 via-indigo-900 to-black dark:from-amber-800/30 dark:via-indigo-950 dark:to-black";
-  }
+  // Default light background
+  let light = "from-slate-50 via-white to-slate-200";
 
-  return "bg-gradient-to-br from-sky-50 via-white to-slate-200 dark:from-sky-700/40 dark:via-indigo-900/40 dark:to-gray-950";
+  if (code != null) {
+    const day = !!isDay;
+    if ([0, 1, 2].includes(code)) {
+      light = day ? "from-sky-50 via-blue-100 to-indigo-200" : "from-slate-50 via-indigo-50 to-blue-100";
+    } else if (code === 3) {
+      light = "from-slate-100 via-slate-200 to-slate-300";
+    } else if ([45, 48].includes(code)) {
+      light = "from-gray-100 via-gray-200 to-slate-200";
+    } else if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) {
+      light = "from-sky-50 via-sky-100 to-slate-200";
+    } else if ([71,73,75,77,85,86].includes(code)) {
+      light = "from-blue-50 via-slate-100 to-slate-200";
+    } else if ([95,96,99].includes(code)) {
+      light = "from-amber-50 via-sky-100 to-indigo-200";
+    }
+  }
+  return `bg-gradient-to-br ${light} ${dark}`;
+}
+
+function weekday(dateIso: string) {
+  const d = new Date(dateIso);
+  return d.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+// Format a daily date string ("YYYY-MM-DD") safely for a target timezone
+function weekdayInTz(dateStr: string, tz: string) {
+  // Use UTC noon to avoid date rollovers across time zones
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  return new Intl.DateTimeFormat(undefined, { weekday: "short", timeZone: tz }).format(d);
+}
+
+// Helper to format a time in the location's time zone
+function formatClock(iso: string, tz: string) {
+  const d = new Date(iso);
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: tz,
+  }).format(d);
 }
 
 export default function Home() {
   const [city, setCity] = useState("");
-  const [unit, setUnit] = useState<"metric" | "us">("us"); // default °F
+  const [unit, setUnit] = useState<"metric" | "us">("us");
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recent, setRecent] = useState<string[]>([]); 
-  const [themeClass, setThemeClass] = useState(
-    "bg-gradient-to-br from-sky-50 via-white to-slate-200 dark:from-sky-700/40 dark:via-indigo-900/40 dark:to-gray-950"
-  );
+  const [alerts, setAlerts] = useState<{ id:string; headline:string; severity:string; uri:string|null }[]>([]);
+
+  // Background + aurora
+  const [themeClass, setThemeClass] = useState(() => themeFrom());
+  const [aurora, setAurora] = useState<AuroraTheme>(() => auroraFrom());
+
+  // Search + suggestions
+  const [recent, setRecent] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<GeoResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [focusIdx, setFocusIdx] = useState<number>(-1); 
-  const [aurora, setAurora] = useState<AuroraTheme>(() => auroraFrom());
+  const [focusIdx, setFocusIdx] = useState(-1);
+
+  // Favorites / compare
+  const [recentPlaces, setRecentPlaces] = useState<Place[]>([]);
+  const [compareSel, setCompareSel] = useState<Place[]>([]);
+  const [compareData, setCompareData] = useState<WeatherData[] | null>(null);
+
+  // Map picker
+  const [showMap, setShowMap] = useState(true);
+  const [picked, setPicked] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Add to Home component state
+  const [air, setAir] = useState<{ aqi:number|null; pm25:number|null; pm10:number|null } | null>(null);
+
   const labels = unitLabels(unit);
+  const days = weather ? weather.daily.time.slice(0, 5).map((day, i) => ({ day, i })) : [];
+
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const suggestionsRef = useRef<HTMLDivElement | null>(null); 
+  const suggestionsRef = useRef<HTMLDivElement | null>(null);
   const pendingArrowDownRef = useRef(false);
 
   // Load saved unit preference
@@ -318,6 +352,29 @@ export default function Home() {
       return next;
     });
   };
+
+  // Load/save recent places (with coords)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("recentPlaces");
+      if (raw) setRecentPlaces(JSON.parse(raw));
+    } catch {}
+  }, []);
+  const pushRecentPlace = (p: Place) => {
+    setRecentPlaces((prev) => {
+      const dedup = prev.filter((x) => Math.abs(x.lat - p.lat) > 1e-6 || Math.abs(x.lon - p.lon) > 1e-6);
+      const next = [p, ...dedup].slice(0, 8);
+      localStorage.setItem("recentPlaces", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // When we load any weather, store as recent place
+  useEffect(() => {
+    if (weather?.location) {
+      pushRecentPlace({ name: weather.location.name, lat: weather.location.lat, lon: weather.location.lon });
+    }
+  }, [weather?.location?.lat, weather?.location?.lon, weather?.location?.name]);
 
   // Update background when weather changes
   useEffect(() => {
@@ -545,6 +602,85 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, [sp]);
 
+  // Compare handler
+  async function doCompare() {
+    if (compareSel.length !== 2) return;
+    setLoading(true);
+    try {
+      const [a, b] = compareSel;
+      const [wa, wb] = await Promise.all([
+        fetchWeather(a.lat, a.lon, a.name, unit),
+        fetchWeather(b.lat, b.lon, b.name, unit),
+      ]);
+      setCompareData([wa, wb]);
+      queueMicrotask(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    } catch (e) {
+      console.error(e);
+      setError("Compare failed. Try again.");
+      setCompareData(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleMapPick = async (lat: number, lon: number) => {
+    setPicked({ lat, lon });
+    setLoading(true);
+    setError(null);
+    try {
+      const name = (await reverseGeocode(lat, lon)) ?? "Selected location";
+      const data = await fetchWeather(lat, lon, name, unit);
+      setWeather(data);
+      setCity("");
+      queueMicrotask(() =>
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      );
+    } catch (e) {
+      console.error(e);
+      setError("Failed to load selected location.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeFavorite = (p: Place) => {
+    // Remove from favorites list + storage
+    setRecentPlaces((prev) => {
+      const next = prev.filter(
+        (x) => Math.abs(x.lat - p.lat) >= 1e-6 || Math.abs(x.lon - p.lon) >= 1e-6
+      );
+      try { localStorage.setItem("recentPlaces", JSON.stringify(next)); } catch {}
+      return next;
+    });
+    // If selected for compare, unselect it too
+    setCompareSel((sel) =>
+      sel.filter(
+        (x) => Math.abs(x.lat - p.lat) >= 1e-6 || Math.abs(x.lon - p.lon) >= 1e-6
+      )
+    );
+    setCompareData(null);
+  };
+
+  // Fetch alerts when weather is available
+  useEffect(() => {
+    if (!weather) return;
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    fetch(`${base}/api/alerts?lat=${weather.location.lat}&lon=${weather.location.lon}`)
+      .then((r) => r.json())
+      .then((j) => setAlerts(j.alerts || []))
+      .catch(() => setAlerts([]));
+  }, [weather?.location.lat, weather?.location.lon]);
+
+  // Add useEffect to fetch air quality
+  useEffect(() => {
+    if (!weather) return setAir(null);
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    fetch(`${base}/api/air?lat=${weather.location.lat}&lon=${weather.location.lon}`)
+      .then(r => r.json())
+      .then(setAir)
+      .catch(() => setAir(null));
+  }, [weather?.location.lat, weather?.location.lon]);
+
   return (
     <main className={`min-h-screen flex flex-col transition-colors duration-500 ${themeClass}`}>
       <Aurora
@@ -553,345 +689,554 @@ export default function Home() {
         opacityA={aurora.opacityA}
         opacityB={aurora.opacityB}
       />
-      <div className="max-w-4xl w-full mx-auto px-6 pt-12 pb-6">
-        {/* Search form (animated in) */}
-        <section className="text-center animate-fadeUp">
-          <h1
-            className="
-              inline-block text-5xl sm:text-6xl font-extrabold tracking-tight
-              leading-[1.15] pb-[2px] mb-3
-              bg-clip-text text-transparent
-              bg-gradient-to-b
-              from-gray-900 via-sky-700 to-blue-600
-              dark:from-white dark:via-blue-200 dark:to-blue-400
-              drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)] dark:drop-shadow-none
-            "
+
+      <div className="max-w-5xl w-full mx-auto px-6 py-10">
+        {/* Moved to the top */}
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-2">
+          Weather
+        </h1>
+        <p className="text-center opacity-80 mb-6">Search by city or use your location.</p>
+
+        {/* Search + map */}
+        <div className="max-w-3xl mx-auto mb-6">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              goToCity();
+            }}
           >
-            Current Weather Conditions
-          </h1>
-          <p className="text-lg opacity-90 mb-8">Search by city or use your location.</p>
-
-          <div className="flex flex-wrap gap-3 justify-center">
-            <input
-              ref={inputRef}
-              className="
-                flex-1 min-w-[260px] max-w-md rounded-xl px-4 py-3
-                bg-white text-gray-900 placeholder-gray-500
-                dark:bg-white/10 dark:text-white
-                ring-1 ring-black/10 dark:ring-white/10
-                focus:ring-2 focus:ring-sky-400/60 dark:focus:ring-sky-300/40
-                outline-none shadow-sm
-              "
-              type="text"
-              placeholder="Enter city (e.g., Springfield, IL)"
-              value={city}
-              onChange={(e) => {
-                setCity(e.target.value);
-                setShowSuggestions(false);
-                setFocusIdx(-1);
-              }}
-              aria-label="City"
-              aria-expanded={showSuggestions}
-              aria-controls="city-suggestions"
-              role="combobox"
-              autoComplete="off"
-              disabled={loading}
-              aria-activedescendant={focusIdx >= 0 ? `city-opt-${focusIdx}` : undefined} // a11y hint
-              onKeyDown={(e) => {
-                const key = e.key || (e as any).keyIdentifier; // Safari fallback
-                const isDown = key === "ArrowDown" || key === "Down" || (e as any).keyCode === 40;
-                const isUp = key === "ArrowUp" || key === "Up" || (e as any).keyCode === 38;
-
-                if (showSuggestions && suggestions.length) {
-                  if (isDown) {
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+              <input
+                ref={inputRef}
+                type="text"
+                value={city}
+                onChange={(e) => {
+                  setCity(e.target.value);
+                  if (!e.target.value.trim()) {
+                    setShowSuggestions(false);
+                    setSuggestions([]);
+                    setFocusIdx(-1);
+                  }
+                }}
+                onFocus={() => {
+                  if (suggestions.length) setShowSuggestions(true);
+                }}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter") {
                     e.preventDefault();
-                    setFocusIdx((i) => (i < 0 ? 0 : (i + 1) % suggestions.length));
-                  } else if (isUp) {
-                    e.preventDefault();
-                    setFocusIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-                  } else if (key === "Enter") {
-                    e.preventDefault();
-                    if (focusIdx >= 0) {
-                      chooseSuggestion(suggestions[focusIdx]);
+                    if (focusIdx >= 0 && suggestions[focusIdx]) {
+                      await chooseSuggestion(suggestions[focusIdx]);
                     } else {
-                      goToCity();
+                      await goToCity();
                     }
-                  } else if (key === "Escape") {
+                  } else if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    if (!suggestions.length) {
+                      pendingArrowDownRef.current = true;
+                      await goToCity();
+                    } else {
+                      setFocusIdx((i) => Math.min(i + 1, suggestions.length - 1));
+                    }
+                    setShowSuggestions(true);
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setFocusIdx((i) => Math.max(i - 1, -1));
+                  } else if (e.key === "Escape") {
                     setShowSuggestions(false);
                     setFocusIdx(-1);
                   }
-                } else {
-                  // No list visible yet: ArrowDown should open it and preselect first item
-                  if (isDown && city.trim()) {
-                    e.preventDefault();
-                    pendingArrowDownRef.current = true;
-                    goToCity();
-                    return;
-                  }
-                  if (key === "Enter") {
-                    goToCity();
-                  }
-                }
-              }}
-            />
-            <Button variant="filled" size="md" onClick={() => goToCity()} disabled={loading || !city.trim()}>
-              {loading ? "Loading..." : "Get Weather"}
-            </Button>
-            <Button variant="outline" size="md" onClick={useMyLocation} disabled={loading}>
-              {loading ? "Loading..." : "Use my location"}
+                }}
+                placeholder="Search a city (e.g., Seattle, WA)"
+                className="min-w-0 flex-1 w-full rounded-xl px-4 py-3 ring-1 ring-black/15 dark:ring-white/20 bg-white/80 dark:bg-white/10 focus:outline-none focus:ring-sky-400/60"
+              />
+              <Button type="submit" variant="filled" size="md" disabled={loading} className="w-full sm:w-auto shrink-0">
+                Search
+              </Button>
+              <Button type="button" variant="outline" size="md" onClick={useMyLocation} disabled={loading} className="w-full sm:w-auto shrink-0">
+                Use my location
+              </Button>
+            </div>
+          </form>
+
+          {/* Unit switch + Map picker toggle */}
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <div className="inline-flex rounded-lg ring-1 ring-black/15 dark:ring-white/20 overflow-hidden">
+              <button
+                className={`px-3 py-1.5 text-sm ${unit === "us" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "bg-transparent"}`}
+                onClick={() => switchUnit("us")}
+                type="button"
+              >
+                US
+              </button>
+              <button
+                className={`px-3 py-1.5 text-sm ${unit === "metric" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "bg-transparent"}`}
+                onClick={() => switchUnit("metric")}
+                type="button"
+              >
+                Metric
+              </button>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowMap((v) => !v)}
+              disabled={loading}
+              className="ml-auto"
+            >
+              {showMap ? "Hide map" : "Pick on map"}
             </Button>
           </div>
+
+          {/* Favorites: multi-select for comparison */}
+          {recentPlaces.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm opacity-70">Favorites:</span>
+              {recentPlaces.map((p) => {
+                const isSelected = compareSel.some(
+                  (c) => Math.abs(c.lat - p.lat) < 1e-6 && Math.abs(c.lon - p.lon) < 1e-6
+                );
+                const disabled = !isSelected && compareSel.length >= 2;
+
+                const toggleSelect = () => {
+                  setCompareData(null);
+                  setCompareSel((sel) => {
+                    const exists = sel.find(
+                      (s) => Math.abs(s.lat - p.lat) < 1e-6 && Math.abs(s.lon - p.lon) < 1e-6
+                    );
+                    if (exists) {
+                      // Unselect if already selected
+                      return sel.filter(
+                        (s) => !(Math.abs(s.lat - p.lat) < 1e-6 && Math.abs(s.lon - p.lon) < 1e-6)
+                      );
+                    }
+                    if (sel.length >= 2) return sel;
+                    return [...sel, p];
+                  });
+                };
+
+                return (
+                  <div
+                    key={`${p.lat},${p.lon}`}
+                    role="button"
+                    tabIndex={disabled ? -1 : 0}
+                    aria-pressed={isSelected}
+                    aria-disabled={disabled || undefined}
+                    className={`group relative pl-3 pr-2 py-1.5 rounded-xl text-sm ring-1 transition ${
+                      isSelected
+                        ? "bg-sky-600 text-white ring-sky-600"
+                        : "bg-white/70 dark:bg-white/10 ring-black/10 dark:ring-white/15 hover:bg-black/5 dark:hover:bg-white/15"
+                    } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    onClick={() => {
+                      if (disabled) return;
+                      toggleSelect();
+                    }}
+                    onKeyDown={(e) => {
+                      if (disabled) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleSelect();
+                      }
+                    }}
+                    title={p.name}
+                  >
+                    <span className="truncate max-w-[10rem] inline-block align-middle">{p.name}</span>
+
+                    {/* Close: remove from favorites; visible on hover/focus/when selected */}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${p.name} from favorites`}
+                      title="Remove"
+                      className={`ml-2 inline-flex items-center justify-center w-5 h-5 rounded-md transition
+                        ${isSelected ? "opacity-100" : "opacity-0"}
+                        group-hover:opacity-100 group-focus-within:opacity-100
+                        ${isSelected ? "bg-white/25 text-white/95 hover:bg-white/35" : "bg-black/10 text-black/70 hover:bg-black/15 dark:bg-white/15 dark:text-white/80 dark:hover:bg-white/25"}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFavorite(p);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-1"
+                onClick={doCompare}
+                disabled={compareSel.length !== 2 || loading}
+              >
+                Compare
+              </Button>
+            </div>
+          )}
 
           {/* Suggestions dropdown */}
           {showSuggestions && suggestions.length > 0 && (
-            <div className="mt-3 max-w-xl mx-auto text-left" ref={suggestionsRef}>
-              <div
-                id="city-suggestions"
-                className="rounded-2xl ring-1 ring-black/10 dark:ring-white/10 bg-white/90 dark:bg-white/5 backdrop-blur-md shadow-lg overflow-hidden"
-                role="listbox"
-              >
-                <ul className="divide-y divide-black/5 dark:divide-white/10">
-                  {suggestions.map((g, idx) => {
-                    const active = idx === focusIdx;
-                    return (
-                      <li key={`${g.latitude},${g.longitude}`}>
-                        <button
-                          id={`city-opt-${idx}`} // match aria-activedescendant
-                          role="option"
-                          aria-selected={active}
-                          className={`w-full text-left px-4 py-3 transition flex items-center justify-between ${
-                            active ? "bg-black/5 dark:bg-white/10" : "hover:bg-black/5 dark:hover:bg-white/10"
-                          }`}
-                          onMouseEnter={() => setFocusIdx(idx)}
-                          onClick={() => chooseSuggestion(g)}
-                        >
-                          <span className="truncate">{formatPlace(g)}</span>
-                          {typeof g.population === "number" && g.population > 0 && (
-                            <span className="ml-3 text-xs px-2 py-0.5 rounded-full bg-black/10 text-gray-800 dark:bg-white/15 dark:text-white/90">
-                              pop {g.population.toLocaleString()}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-5 inline-flex gap-1 rounded-xl p-1 shadow-md bg-black/5 dark:bg-white/10">
-            <Button
-              variant={unit === "metric" ? "filled" : "ghost"}
-              size="sm"
-              onClick={() => switchUnit("metric")}
-              aria-pressed={unit === "metric"}
-              disabled={loading}
+            <div
+              ref={suggestionsRef}
+              className="mt-2 rounded-xl ring-1 ring-black/10 dark:ring-white/15 bg-white/90 dark:bg-gray-900/80 backdrop-blur shadow-lg overflow-hidden"
             >
-              °C
-            </Button>
-            <Button
-              variant={unit === "us" ? "filled" : "ghost"}
-              size="sm"
-              onClick={() => switchUnit("us")}
-              aria-pressed={unit === "us"}
-              disabled={loading}
-            >
-              °F
-            </Button>
-          </div>
-
-          {error && (
-            <div className="mt-4 max-w-md mx-auto rounded-lg bg-red-500/20 border border-red-500/30 p-3">
-              {error}
-            </div>
-          )}
-        </section>
-
-        {/* Results container (animate in) */}
-        <section ref={resultsRef} className="mt-10 animate-fadeUp">
-          {!weather && !loading && (
-            <div className="max-w-3xl mx-auto text-center opacity-80">
-              Enter a city or use your location to see the weather.
+              {suggestions.map((s, i) => {
+                const active = i === focusIdx;
+                return (
+                  <button
+                    key={`${s.latitude},${s.longitude},${s.name}`}
+                    className={`w-full text-left px-4 py-2 text-sm ${active ? "bg-black/5 dark:bg-white/10" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // keep focus
+                      chooseSuggestion(s);
+                    }}
+                  >
+                    {formatPlace(s)}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Loading skeleton cards */}
-          {loading && (
-            <div className="grid gap-4 md:grid-cols-4 items-stretch auto-rows-fr">
-              {[...Array(4)].map((_, i) => (
-                <Card key={i}>
-                  <div className="h-10 w-24 bg-black/10 dark:bg-white/20 rounded animate-pulse mb-2" />
-                  <div className="h-4 w-40 bg-black/10 dark:bg-white/20 rounded animate-pulse" />
-                </Card>
-              ))}
+          {/* Map picker */}
+          {showMap && (
+            <div className="mt-3">
+              <MapPicker
+                initial={{
+                  lat: weather?.location.lat ?? 39.5,
+                  lon: weather?.location.lon ?? -98.35,
+                }}
+                onChange={handleMapPick}
+                radar={true}
+                animateRadar={true}
+                showRadarControls={true}
+                radarStepMs={800}
+              />
             </div>
           )}
+        </div>
 
-          {weather && !loading && (
-            <>
-              {/* Location header at the top of the results */}
-              <div className="mb-4 flex items-baseline justify-between">
-                <h2 className="text-2xl font-bold">{weather.location.name}</h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-4 items-stretch auto-rows-fr">
-                {/* Temperature */}
-                <Card accent="amber" tilt>
-                  <div className="flex h-full flex-col">
-                    <div>
-                      <div className="flex items-end gap-2">
-                        <div className="text-6xl font-bold">
-                          {Math.round(weather.current.temperature_2m)}
-                          <span className="text-4xl">{labels.temp}</span>
-                        </div>
-                        <div className="mb-2">
-                          <WeatherIcons code={weather.current.weather_code} className="text-4xl" />
-                        </div>
-                      </div>
-                      <div className="text-lg mt-1">{describe(weather.current.weather_code)}</div>
-                    </div>
-                    {(() => {
-                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
-                      const temps = weather.hourly.temperature_2m.slice(startIdx, startIdx + 24);
-                      if (temps.length < 2) return null;
-                      return (
-                        <div className="mt-auto pt-4">
-                          <div className="text-xs uppercase opacity-70 mb-1">Next 24h</div>
-                          <Sparkline data={temps} height={42} />
-                        </div>
-                      );
-                    })()}
+        {!loading && weather && (
+          <section ref={resultsRef} className="mb-10">
+            <div className="grid gap-4 md:grid-cols-5 items-stretch">
+              <Card accent="amber" tilt>
+                <div className="flex h-full flex-col">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm uppercase tracking-wider opacity-80">Temp</div>
+                    <WeatherIcons
+                      code={weather.current.weather_code}
+                      isDay={weather.current.is_day === 1}
+                      size={22}
+                      className="text-amber-500 dark:text-amber-300"
+                    />
                   </div>
-                </Card>
-
-                {/* Feels like */}
-                <Card accent="rose" tilt>
-                  <div className="flex h-full flex-col">
-                    <div>
-                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Feels like</div>
-                      <div className="text-4xl font-semibold">
-                        {Math.round(weather.current.apparent_temperature)}
-                        {labels.temp}
-                      </div>
-                      <div className="mt-2 text-sm opacity-70">Humidity: {weather.current.relative_humidity_2m}%</div>
-                    </div>
-                    {(() => {
-                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
-                      const feels = weather.hourly.apparent_temperature.slice(startIdx, startIdx + 24);
-                      if (feels.length < 2) return null;
-                      return (
-                        <div className="mt-auto pt-4 text-rose-500 dark:text-rose-300">
-                          <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                          <Sparkline data={feels} height={42} />
-                        </div>
-                      );
-                    })()}
+                  <div className="mt-1 text-4xl font-semibold">
+                    {Math.round(weather.current.temperature_2m)}{labels.temp}
                   </div>
-                </Card>
-
-                {/* Wind */}
-                <Card accent="emerald" tilt>
-                  <div className="flex h-full flex-col">
-                    <div>
-                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Wind</div>
-                      <div className="text-4xl font-semibold">
-                        {Math.round(weather.current.wind_speed_10m)} {labels.wind}
-                      </div>
-                    </div>
-                    {(() => {
-                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
-                      const wind = weather.hourly.wind_speed_10m.slice(startIdx, startIdx + 24);
-                      if (wind.length < 2) return null;
-                      return (
-                        <div className="mt-auto pt-4 text-emerald-600 dark:text-emerald-300">
-                          <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                          <Sparkline data={wind} height={42} />
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </Card>
-
-                {/* Precipitation */}
-                <Card accent="sky" tilt>
-                  <div className="flex h-full flex-col">
-                    <div>
-                      <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Precipitation</div>
-                      {(() => {
-                        const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
-                        const precipNow =
-                          weather.current.precipitation ?? weather.hourly.precipitation[startIdx] ?? 0;
-                        return (
-                          <div className="text-4xl font-semibold">
-                            {formatPrecip(precipNow, unit)} {labels.precip}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    {(() => {
-                      const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
-                      const precip = weather.hourly.precipitation.slice(startIdx, startIdx + 24);
-                      if (precip.length < 2) return null;
-                      return (
-                        <div className="mt-auto pt-4 text-sky-700 dark:text-sky-300">
-                          <div className="text-xs uppercase opacity-70 mb-1 text-inherit">Next 24h</div>
-                          <Sparkline data={precip} height={42} />
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </Card>
-              </div>
-
-              <section className="mt-8">
-                <h2 className="text-xl font-semibold mb-3 animate-fadeUp" style={{ animationDelay: "60ms" }}>
-                  5-Day Forecast
-                </h2>
-                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
                   {(() => {
-                    const todayStr = weather.current.time.slice(0, 10);
-                    const startIdx = Math.max(weather.daily.time.findIndex((d) => d >= todayStr), 0);
-                    const days = weather.daily.time.slice(startIdx, startIdx + 5).map((day, i) => ({ day, i: startIdx + i }));
-                    const weekday = (d: string) => {
-                      const label = new Intl.DateTimeFormat(undefined, { weekday: "short", timeZone: weather.timezone }).format(
-                        new Date(d + "T12:00:00")
-                      );
-                      return label === "Thu" ? "Thur" : label;
-                    };
-                    return days.map(({ day, i }, idx) => {
-                      const href = `/day/${day}?lat=${weather.location.lat}&lon=${weather.location.lon}` +
-                        `&unit=${unit}&name=${encodeURIComponent(weather.location.name)}&tz=${encodeURIComponent(weather.timezone)}`;
-                      return (
-                        <Link key={day} href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 rounded-2xl">
-                          <Card padding="p-3" wrapperClassName="animate-fadeUp">
-                            <div className="font-medium">{idx === 0 ? "Today" : weekday(day)}</div>
-                            <div className="text-2xl font-semibold mt-1">
-                              {Math.round(weather.daily.temperature_2m_max[i])}{labels.temp}
-                            </div>
-                            <div className="text-sm opacity-80">
-                              Low: {Math.round(weather.daily.temperature_2m_min[i])}{labels.temp}
-                            </div>
-                            {Number.isFinite(weather.daily.precipitation_probability_max?.[i]) && (
-                              <div className="text-sm opacity-80 mt-1">
-                                Precip Chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
-                              </div>
-                            )}
-                          </Card>
-                        </Link>
-                      );
-                    });
+                    const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                    const temps = weather.hourly.temperature_2m.slice(startIdx, startIdx + 24);
+                    return temps.length > 1 ? (
+                      <div className="mt-auto pt-4">
+                        <Sparkline data={temps} height={42} />
+                      </div>
+                    ) : null;
                   })()}
                 </div>
-              </section>
-            </>
-          )}
-        </section>
-      </div>
+              </Card>
 
-      <footer className="p-4 text-center opacity-80 text-sm">
-        © {new Date().getFullYear()} BentlinDevelopment
-      </footer>
+              <Card accent="rose" tilt>
+                <div className="flex h-full flex-col">
+                  <div className="text-sm uppercase tracking-wider opacity-80">Feels like</div>
+                  <div className="mt-1 text-4xl font-semibold">
+                    {Math.round(weather.current.apparent_temperature)}{labels.temp}
+                  </div>
+                  {(() => {
+                    const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                    const feels = weather.hourly.apparent_temperature.slice(startIdx, startIdx + 24);
+                    return feels.length > 1 ? (
+                      <div className="mt-auto pt-4 text-rose-500 dark:text-rose-300">
+                        <Sparkline data={feels} height={42} />
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              </Card>
+
+              <Card accent="emerald" tilt>
+                <div className="flex h-full flex-col">
+                  <div className="text-sm uppercase tracking-wider opacity-80">Wind</div>
+                  <div className="mt-1 text-4xl font-semibold">
+                    {Math.round(weather.current.wind_speed_10m)} {labels.wind}
+                  </div>
+                  {(() => {
+                    const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                    const wind = weather.hourly.wind_speed_10m.slice(startIdx, startIdx + 24);
+                    return wind.length > 1 ? (
+                      <div className="mt-auto pt-4 text-emerald-600 dark:text-emerald-300">
+                        <Sparkline data={wind} height={42} />
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              </Card>
+
+              <Card accent="sky" tilt>
+                <div className="flex h-full flex-col">
+                  <div className="text-sm uppercase tracking-wider opacity-80">Precip</div>
+                  <div className="mt-1 text-4xl font-semibold">
+                    {formatPrecip(Number(weather.current.precipitation || 0), unit)} {labels.precip}
+                  </div>
+                  {(() => {
+                    const startIdx = Math.max(weather.hourly.time.findIndex((t) => t >= weather.current.time), 0);
+                    const precip = weather.hourly.precipitation.slice(startIdx, startIdx + 24);
+                    return precip.length > 1 ? (
+                      <div className="mt-auto pt-4 text-sky-700 dark:text-sky-300">
+                        <Sparkline data={precip} height={42} />
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              </Card>
+
+              {/* Add Air Quality card */}
+              <Card accent="indigo" tilt>
+                <div className="flex h-full flex-col">
+                  <div className="text-sm uppercase tracking-wider opacity-80">Air Quality</div>
+                  <div className="mt-1 text-4xl font-semibold">
+                    {air?.aqi != null ? Math.round(air.aqi) : "–"}
+                  </div>
+                  <div className="text-sm opacity-80">
+                    {air?.aqi != null ? (
+                      air.aqi <= 50 ? "Good" :
+                      air.aqi <= 100 ? "Moderate" :
+                      air.aqi <= 150 ? "Unhealthy for Sensitive" :
+                      air.aqi <= 200 ? "Unhealthy" : "Hazardous"
+                    ) : "AQI"}
+                  </div>
+                  <div className="opacity-80 mt-auto pt-4 text-sm">
+                    PM2.5 {air?.pm25?.toFixed?.(1) ?? "–"} • PM10 {air?.pm10?.toFixed?.(1) ?? "–"}
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </section>
+        )}
+
+        {/* 5‑day forecast */}
+        {loading && (
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="animate-fade-up" style={{ animationDelay: `${80 * i}ms` }}>
+                <div className="p-3 rounded-2xl ring-1 ring-black/10 dark:ring-white/10 bg-white/70 dark:bg-white/5">
+                  <div className="skeleton h-5 w-20 mb-2" />
+                  <div className="skeleton h-8 w-16 mb-1" />
+                  <div className="skeleton h-4 w-24" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && weather && (
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
+            {days.map(({ day, i }, idx) => {
+              const href =
+                `/day/${day}?lat=${weather.location.lat}&lon=${weather.location.lon}` +
+                `&unit=${unit}&name=${encodeURIComponent(weather.location.name)}&tz=${encodeURIComponent(weather.timezone)}`;
+              return (
+                <Link key={day} href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 rounded-2xl">
+                  <Card padding="p-3" wrapperClassName="animate-fade-up">
+                    <div style={{ animationDelay: `${80 * idx}ms` }}>
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">
+                          {i === 0 ? "Today" : weekdayInTz(day, weather.timezone)}
+                        </div>
+                        <WeatherIcons
+                          code={weather.daily.weather_code?.[i] ?? weather.current.weather_code}
+                          isDay
+                          size={22}
+                          className="text-slate-700 dark:text-slate-200"
+                        />
+                      </div>
+                      <div className="text-2xl font-semibold mt-1">
+                        {Math.round(weather.daily.temperature_2m_max[i])}{labels.temp}
+                      </div>
+                      <div className="text-sm opacity-80">
+                        Low: {Math.round(weather.daily.temperature_2m_min[i])}{labels.temp}
+                      </div>
+                      {Number.isFinite(weather.daily.precipitation_probability_max?.[i]) && (
+                        <div className="text-sm opacity-80 mt-1">
+                          Precip Chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {!loading && !weather && (
+          <div className="text-center opacity-75 mt-6">Search to see the 5‑day forecast.</div>
+        )}
+
+        {compareData && compareData.length === 2 && (
+          <section className="mt-10" ref={resultsRef}>
+            <h3 className="text-lg font-semibold mb-3">Comparison</h3>
+            <div className="grid gap-4 md:grid-cols-2 items-stretch">
+              {compareData.map((w) => {
+                const labelsC = unitLabels(unit);
+                const startIdx = Math.max(w.hourly.time.findIndex((t) => t >= w.current.time), 0);
+                const temps = w.hourly.temperature_2m.slice(startIdx, startIdx + 24);
+                const feels = w.hourly.apparent_temperature.slice(startIdx, startIdx + 24);
+                const wind = w.hourly.wind_speed_10m.slice(startIdx, startIdx + 24);
+                const precip = w.hourly.precipitation.slice(startIdx, startIdx + 24);
+                return (
+                  <Card key={`${w.location.lat},${w.location.lon}`} wrapperClassName="animate-fade-up">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <div className="text-xl font-semibold">{w.location.name}</div>
+                      <div className="text-sm opacity-80">
+                        {new Date(w.current.time).toLocaleTimeString(undefined, {
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZone: w.timezone,
+                        })}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-sm opacity-80 mb-1">Temp</div>
+                        <div className="text-3xl font-semibold">
+                          {Math.round(w.current.temperature_2m)}
+                          {labelsC.temp}
+                        </div>
+                        {temps.length > 1 && <div className="mt-2"><Sparkline data={temps} height={36} /></div>}
+                      </div>
+                      <div>
+                        <div className="text-sm opacity-80 mb-1">Feels</div>
+                        <div className="text-3xl font-semibold">
+                          {Math.round(w.current.apparent_temperature)}
+                          {labelsC.temp}
+                        </div>
+                        {feels.length > 1 && (
+                          <div className="mt-2 text-rose-500 dark:text-rose-300">
+                            <Sparkline data={feels} height={36} />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm opacity-80 mb-1">Wind</div>
+                        <div className="text-3xl font-semibold">
+                          {Math.round(w.current.wind_speed_10m)} {labelsC.wind}
+                        </div>
+                        {wind.length > 1 && (
+                          <div className="mt-2 text-emerald-600 dark:text-emerald-300">
+                            <Sparkline data={wind} height={36} />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm opacity-80 mb-1">Precip</div>
+                        <div className="text-3xl font-semibold">
+                          {(precip?.[0] || 0).toFixed(unit === "us" ? 2 : 1)} {labelsC.precip}
+                        </div>
+                        {precip.length > 1 && (
+                          <div className="mt-2 text-sky-700 dark:text-sky-300">
+                            <Sparkline data={precip} height={36} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {alerts.length > 0 && (
+          <div className="mb-4 rounded-xl p-3 ring-1 ring-amber-500/30 bg-amber-400/15 text-amber-900 dark:text-amber-200">
+            <div className="font-semibold mb-1">Weather alerts</div>
+            <ul className="list-disc pl-5 space-y-1">
+              {alerts.slice(0, 3).map((a) => (
+                <li key={a.id}>
+                  {a.headline}
+                  {a.uri && (
+                    <Link className="ml-2 underline" href={a.uri} target="_blank" rel="noreferrer">
+                      Details
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Sunrise/Sunset section */}
+        {!loading && weather && (
+          <section className="mt-4">
+            <div className="grid">
+              <Card accent="indigo" tilt>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl" role="img" aria-label="sunrise">🌅</span>
+                    <div>
+                      <div className="text-sm uppercase tracking-wider opacity-80">Sunrise</div>
+                      <div className="text-xl font-semibold">
+                        {weather.daily.sunrise?.[0]
+                          ? formatClock(weather.daily.sunrise[0], weather.timezone)
+                          : "–"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl" role="img" aria-label="sunset">🌇</span>
+                    <div>
+                      <div className="text-sm uppercase tracking-wider opacity-80">Sunset</div>
+                      <div className="text-xl font-semibold">
+                        {weather.daily.sunset?.[0]
+                          ? formatClock(weather.daily.sunset[0], weather.timezone)
+                          : "–"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-sm opacity-80 sm:text-right">
+                    {(() => {
+                      const sr = weather.daily.sunrise?.[0];
+                      const ss = weather.daily.sunset?.[0];
+                      if (!sr || !ss) return null;
+                      const srDate = new Date(sr);
+                      const ssDate = new Date(ss);
+                      const dayMinutes = Math.max(0, Math.round((ssDate.getTime() - srDate.getTime()) / 60000));
+                      const h = Math.floor(dayMinutes / 60);
+                      const m = dayMinutes % 60;
+                      // Simple golden hour approximation (±1h around sunrise/sunset)
+                      const gh1Start = new Date(srDate.getTime());
+                      const gh1End = new Date(srDate.getTime() + 60 * 60000);
+                      const gh2Start = new Date(ssDate.getTime() - 60 * 60000);
+                      const gh2End = new Date(ssDate.getTime());
+                      const tz = weather.timezone;
+
+                      return (
+                        <>
+                          <div>Daylight: {h}h {m}m</div>
+                          <div className="mt-1">
+                            Golden hour: {formatClock(gh1Start.toISOString(), tz)}–{formatClock(gh1End.toISOString(), tz)} and {formatClock(gh2Start.toISOString(), tz)}–{formatClock(gh2End.toISOString(), tz)}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }

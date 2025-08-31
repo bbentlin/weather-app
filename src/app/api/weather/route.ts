@@ -25,12 +25,24 @@ export async function GET(req: Request) {
     );
     url.searchParams.set(
       "daily",
-      "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max" 
+      "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,weather_code,sunrise,sunset"
     );
     url.searchParams.set("hourly", "temperature_2m,apparent_temperature,wind_speed_10m,precipitation");
     url.searchParams.set("timezone", "auto");
-    url.searchParams.set("past_days", "0");
-    url.searchParams.set("forecast_days", "7");
+
+    // Remove params that conflict with explicit date range
+    // url.searchParams.set("forecast_days", "7"); // REMOVE
+    url.searchParams.delete("past_days");         // ensure it's not present
+
+    // Use an explicit 7‑day window starting today
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 6);
+    const startDateStr = today.toISOString().slice(0, 10);
+    const endDateStr = endDate.toISOString().slice(0, 10);
+    url.searchParams.set("start_date", startDateStr);
+    url.searchParams.set("end_date", endDateStr);
+
     if (unit === "us") {
       url.searchParams.set("temperature_unit", "fahrenheit");
       url.searchParams.set("wind_speed_unit", "mph");

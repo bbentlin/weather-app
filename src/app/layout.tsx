@@ -1,17 +1,17 @@
 import "./globals.css";
-import { Plus_Jakarta_Sans } from "next/font/google";
-
-const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400","600","700","800"] });
+import "leaflet/dist/leaflet.css";
 
 export const metadata = {
-  title: "BentlinDevelopment Weather",
-  description: "Check the weather by city or your location.",
+  title: "Weather",
+  description: "Weather and radar",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={jakarta.className}>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body className="antialiased bg-white text-slate-900 dark:bg-gray-950 dark:text-slate-200 transition-colors duration-300">
+        {children}
+      </body>
     </html>
   );
 }
