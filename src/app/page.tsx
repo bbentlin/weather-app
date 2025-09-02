@@ -322,6 +322,10 @@ export default function Home() {
   const labels = unitLabels(unit);
   const days = weather ? weather.daily.time.slice(0, 5).map((day, i) => ({ day, i })) : [];
 
+  // Thermometer scale across the displayed 5 days
+  const spanMin = weather ? Math.min(...weather.daily.temperature_2m_min.slice(0, 5)) : 0; // ADD
+  const spanMax = weather ? Math.max(...weather.daily.temperature_2m_max.slice(0, 5)) : 1; // ADD
+
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const suggestionsRef = useRef<HTMLDivElement | null>(null);
@@ -683,22 +687,16 @@ export default function Home() {
 
   return (
     <main className={`min-h-screen flex flex-col transition-colors duration-500 ${themeClass}`}>
-      <Aurora
-        colorsA={aurora.colorsA}
-        colorsB={aurora.colorsB}
-        opacityA={aurora.opacityA}
-        opacityB={aurora.opacityB}
-      />
+      <Aurora {...aurora} />
 
       <div className="max-w-5xl w-full mx-auto px-6 py-10">
-        {/* Moved to the top */}
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-2">
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-2 gradient-text">
           Weather
         </h1>
         <p className="text-center opacity-80 mb-6">Search by city or use your location.</p>
 
         {/* Search + map */}
-        <div className="max-w-3xl mx-auto mb-6">
+        <div className="max-w-3xl mx-auto mb-6 rounded-2xl ring-1 ring-black/10 dark:ring-white/15 bg-white/70 dark:bg-white/5 backdrop-blur p-4 sm:p-5">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1044,14 +1042,18 @@ export default function Home() {
               const href =
                 `/day/${day}?lat=${weather.location.lat}&lon=${weather.location.lon}` +
                 `&unit=${unit}&name=${encodeURIComponent(weather.location.name)}&tz=${encodeURIComponent(weather.timezone)}`;
+              const lo = weather.daily.temperature_2m_min[i];     // ADD
+              const hi = weather.daily.temperature_2m_max[i];     // ADD
+              const span = Math.max(1, spanMax - spanMin);         // ADD
+              const start = ((lo - spanMin) / span) * 100;         // ADD
+              const width = (Math.max(hi - lo, 0) / span) * 100;   // ADD
+
               return (
-                <Link key={day} href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 rounded-2xl">
+                <Link key={day} href={href} prefetch className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 rounded-2xl">
                   <Card padding="p-3" wrapperClassName="animate-fade-up">
                     <div style={{ animationDelay: `${80 * idx}ms` }}>
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">
-                          {i === 0 ? "Today" : weekdayInTz(day, weather.timezone)}
-                        </div>
+                        <div className="font-medium">{i === 0 ? "Today" : weekdayInTz(day, weather.timezone)}</div>
                         <WeatherIcons
                           code={weather.daily.weather_code?.[i] ?? weather.current.weather_code}
                           isDay
@@ -1060,14 +1062,23 @@ export default function Home() {
                         />
                       </div>
                       <div className="text-2xl font-semibold mt-1">
-                        {Math.round(weather.daily.temperature_2m_max[i])}{labels.temp}
+                        {Math.round(hi)}{labels.temp}
                       </div>
                       <div className="text-sm opacity-80">
-                        Low: {Math.round(weather.daily.temperature_2m_min[i])}{labels.temp}
+                        Low: {Math.round(lo)}{labels.temp}
                       </div>
+
+                      {/* Hi/Lo thermometer bar */}
+                      <div className="mt-2 h-1.5 rounded-full bg-black/10 dark:bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-amber-500 dark:bg-amber-400"
+                          style={{ marginLeft: `${start}%`, width: `${width}%` }}
+                        />
+                      </div>
+
                       {Number.isFinite(weather.daily.precipitation_probability_max?.[i]) && (
-                        <div className="text-sm opacity-80 mt-1">
-                          Precip Chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
+                        <div className="text-xs opacity-70 mt-2">
+                          Precip chance: {Math.round(weather.daily.precipitation_probability_max![i])}%
                         </div>
                       )}
                     </div>

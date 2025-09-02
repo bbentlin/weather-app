@@ -55,3 +55,18 @@
     background-color: color-mix(in oklab, #7dd3fc 25%, transparent);
   }
 }
+
+/* Gradient text helper */
+.gradient-text {
+  background: linear-gradient(90deg, #0ea5e9, #7c3aed);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Nicer, subtle scrollbars */
+* { scrollbar-color: color-mix(in oklab, CanvasText 35%, transparent) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in oklab, CanvasText 25%, transparent); border-radius: 9999px; }
+.dark ::-webkit-scrollbar-thumb { background: color-mix(in oklab, Canvas 35%, transparent); }

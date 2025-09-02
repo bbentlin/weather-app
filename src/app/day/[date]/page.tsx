@@ -117,7 +117,7 @@ export default function DayPage() {
   const [loading, setLoading] = useState(true);
   const [bundle, setBundle] = useState<DayBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hourIdx, setHourIdx] = useState(0); // ADD
+  const [hourIdx, setHourIdx] = useState(0); 
 
   useEffect(() => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || !date) {
@@ -386,14 +386,17 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Humidity</div>
                     {(() => {
+                      const cur = Math.round(at(bundle.hourly.relative_humidity_2m as number[]) as number);
                       const vals = slice(bundle.hourly.relative_humidity_2m);
-                      const avg = Math.round(
-                        vals.reduce((a, b) => a + (b ?? 0), 0) / (vals.length || 1)
-                      );
+                      const avg = Math.round(vals.reduce((a, b) => a + (b ?? 0), 0) / (vals.length || 1));
                       return (
-                        <div className="text-3xl font-semibold">
-                          {Number.isFinite(avg) ? `${avg}%` : "–"}
-                        </div>
+                        <>
+                          <div className="text-3xl font-semibold">
+                            {Number.isFinite(cur) ? `${cur}%` : "–"}
+                          </div>
+                          <div className="opacity-80">at {timeLabel}</div>
+                          <div className="text-xs opacity-70 mt-1">Avg today: {Number.isFinite(avg) ? `${avg}%` : "–"}</div>
+                        </>
                       );
                     })()}
                   </div>
@@ -409,14 +412,17 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">Cloud cover</div>
                     {(() => {
+                      const cur = Math.round(at(bundle.hourly.cloud_cover as number[]) as number);
                       const vals = slice(bundle.hourly.cloud_cover);
-                      const avg = Math.round(
-                        vals.reduce((a, b) => a + (b ?? 0), 0) / (vals.length || 1)
-                      );
+                      const avg = Math.round(vals.reduce((a, b) => a + (b ?? 0), 0) / (vals.length || 1));
                       return (
-                        <div className="text-3xl font-semibold">
-                          {Number.isFinite(avg) ? `${avg}%` : "–"}
-                        </div>
+                        <>
+                          <div className="text-3xl font-semibold">
+                            {Number.isFinite(cur) ? `${cur}%` : "–"}
+                          </div>
+                          <div className="opacity-80">at {timeLabel}</div>
+                          <div className="text-xs opacity-70 mt-1">Avg today: {Number.isFinite(avg) ? `${avg}%` : "–"}</div>
+                        </>
                       );
                     })()}
                   </div>
@@ -432,12 +438,17 @@ export default function DayPage() {
                   <div>
                     <div className="text-sm uppercase tracking-wider opacity-80 mb-1">UV index</div>
                     {(() => {
+                      const cur = round(at(bundle.hourly.uv_index as number[]) as number, 1);
                       const vals = slice(bundle.hourly.uv_index);
-                      const max = round(maxOf(vals));
+                      const max = round(Math.max(...(vals.length ? vals : [NaN])), 1);
                       return (
-                        <div className="text-3xl font-semibold">
-                          {Number.isFinite(max) ? max : "–"}
-                        </div>
+                        <>
+                          <div className="text-3xl font-semibold">
+                            {Number.isFinite(cur) ? cur : "–"}
+                          </div>
+                          <div className="opacity-80">at {timeLabel}</div>
+                          <div className="text-xs opacity-70 mt-1">Max today: {Number.isFinite(max) ? max : "–"}</div>
+                        </>
                       );
                     })()}
                   </div>
@@ -463,12 +474,13 @@ export default function DayPage() {
                   const gust = slice(bundle.hourly.wind_gusts_10m);
                   const precip = slice(bundle.hourly.precipitation);
                   const chance = slice(bundle.hourly.precipitation_probability);
+                  const clouds = slice(bundle.hourly.cloud_cover); 
 
                   if (!times.length) return <div className="opacity-70">No hourly data.</div>;
 
                   return (
                     <div className="overflow-auto max-h-[60vh] rounded-xl ring-1 ring-black/5 dark:ring-white/10">
-                      <table className="min-w-[720px] w-full text-sm">
+                      <table className="min-w-[840px] w-full text-sm"> 
                         <thead className="sticky top-0 z-10">
                           <tr className="bg-white/80 dark:bg-white/10 backdrop-blur supports-[backdrop-filter:blur(0)]:bg-white/60">
                             <th className="text-left px-3 py-2 font-semibold">Time</th>
@@ -476,6 +488,7 @@ export default function DayPage() {
                             <th className="text-left px-3 py-2 font-semibold">Feels</th>
                             <th className="text-left px-3 py-2 font-semibold">Wind</th>
                             <th className="text-left px-3 py-2 font-semibold">Precip</th>
+                            <th className="text-left px-3 py-2 font-semibold">Clouds</th> 
                             <th className="text-left px-3 py-2 font-semibold">Chance</th>
                           </tr>
                         </thead>
@@ -500,6 +513,7 @@ export default function DayPage() {
                             const precipTxt =
                               (precip[i] || 0).toFixed(unit === "us" ? 2 : 1) + " " + labels.precip;
                             const pct = Math.max(0, Math.min(100, Math.round(chance[i] || 0)));
+                            const cloudPct = Math.max(0, Math.min(100, Math.round(clouds[i] || 0))); 
 
                             return (
                               <tr
@@ -517,11 +531,21 @@ export default function DayPage() {
                                 </td>
                                 <td className="px-3 py-2 whitespace-nowrap">
                                   <div className="flex items-baseline gap-2">
-                                    <span className="font-medium">{windTxt}</span>
-                                    <span className="opacity-70 text-xs">gust {gustTxt}</span>
+                                    <span className="font-medium">{windTxt}</span>        
+                                    <span className="opacity-70 text-xs">gust {gustTxt}</span> 
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 whitespace-nowrap">{precipTxt}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-2 min-w-[130px]">
+                                    <div className="w-20 h-1.5 rounded-full bg-slate-200/70 dark:bg-slate-800/40 overflow-hidden">
+                                      <div
+                                        className="h-full bg-slate-600/80 dark:bg-slate-300/90"
+                                        style={{ width: `${cloudPct}%` }}
+                                      />
+                                    </div>
+                                    <span className="tabular-nums">{cloudPct}%</span> {/* FIX */}
+                                  </div>
+                                </td>
                                 <td className="px-3 py-2">
                                   <div className="flex items-center gap-2 min-w-[130px]">
                                     <div className="w-20 h-1.5 rounded-full bg-sky-200/70 dark:bg-sky-900/40 overflow-hidden">
@@ -530,7 +554,7 @@ export default function DayPage() {
                                         style={{ width: `${pct}%` }}
                                       />
                                     </div>
-                                    <span className="tabular-nums">{pct}%</span>
+                                    <span className="tabular-nums">{pct}%</span> {/* ADD */}
                                   </div>
                                 </td>
                               </tr>
